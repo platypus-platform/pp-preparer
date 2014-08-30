@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/platypus-platform/pp-kv-consul"
 	. "github.com/platypus-platform/pp-logging"
+	"github.com/platypus-platform/pp-store"
 	"io"
 	"io/ioutil"
 	"net/url"
@@ -17,12 +18,6 @@ import (
 type PreparerConfig struct {
 	Hostname     string
 	ArtifactRepo url.URL
-}
-
-type WorkSpec struct {
-	App     string
-	Version string
-	Basedir string
 }
 
 func main() {
@@ -37,80 +32,27 @@ func main() {
 		Hostname:     hostname,
 	}
 
-	c := make(chan WorkSpec)
+	c := make(chan pp.IntentNode)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for w := range c {
-			PrepareArtifact(w.App, w.Version, w.Basedir, preparerConfig)
+		for intent := range c {
+			for _, app := range intent.Apps {
+				for version, _ := range app.Versions {
+					PrepareArtifact(app.Name, version, app.Basedir, preparerConfig)
+				}
+			}
 		}
 	}()
 
-	err = pollOnce(preparerConfig, c)
+	err = pp.PollOnce(preparerConfig.Hostname, c)
 	close(c)
 	wg.Wait()
 	if err != nil {
 		Fatal(err.Error())
 		os.Exit(1)
 	}
-
-}
-
-func pollOnce(config PreparerConfig, c chan WorkSpec) error {
-	Info("Polling intent store")
-	kv, _ := ppkv.NewClient()
-	apps, err := kv.List(path.Join("nodes", config.Hostname))
-	if err != nil {
-		return err
-	}
-
-	for appName, data := range apps {
-		Info("Checking spec for %s", appName)
-
-		appData, worked := stringMap(data)
-		if !worked {
-			Fatal("Invalid node data for %s", appName)
-			continue
-		}
-
-		cluster := appData["cluster"]
-		if cluster == "" {
-			Fatal("No cluster key in node data for %s", appName)
-			continue
-		}
-
-		clusterKey := path.Join("clusters", appName, cluster, "versions")
-		configKey := path.Join("clusters", appName, cluster, "deploy_config")
-
-		versions, err := getMap(kv, clusterKey)
-		if err != nil {
-			Fatal("No or invalid data for %s: %s", clusterKey, err)
-			continue
-		}
-
-		deployConfig, err := getMap(kv, configKey)
-		if err != nil {
-			Fatal("No or invalid data for %s: %s", configKey, err)
-			continue
-		}
-
-		basedir := deployConfig["basedir"]
-		if !path.IsAbs(basedir) {
-			Fatal("Not allowing relative basedir in %s", configKey)
-			continue
-		}
-
-		for version, _ := range versions {
-			Info("Found version: %s/%s", appName, version)
-			c <- WorkSpec{
-				App:     appName,
-				Version: version,
-				Basedir: basedir,
-			}
-		}
-	}
-	return nil
 }
 
 func PrepareArtifact(
