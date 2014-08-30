@@ -87,7 +87,7 @@ func pollOnce(config PreparerConfig, c chan WorkSpec) error {
 		}
 
 		basedir := deployConfig["basedir"]
-		if basedir == "" {
+		if !path.IsAbs(basedir) {
 			Fatal("Not allowing relative basedir in %s", configKey)
 			continue
 		}

@@ -142,6 +142,96 @@ func TestGracefullyMissingClusterData(t *testing.T) {
 	AssertInclude(t, buf.String(), "testapp")
 }
 
+func TestGracefullyMissingOrInvalidVersionData(t *testing.T) {
+	var buf bytes.Buffer
+	setOut(&buf)
+	defer setOut(defaultOut())
+
+	kv := prepareStore()
+	if kv == nil {
+		t.Skip("KV store not available, skipping test.")
+		return
+	}
+
+	kv.Put("nodes/testhost/testapp", map[string]string{
+		"cluster": "test",
+	})
+
+	config := PreparerConfig{Hostname: "testhost"}
+	pollOnce(config, nil)
+
+	AssertInclude(t, buf.String(), "No or invalid data")
+	AssertInclude(t, buf.String(), "testapp")
+
+	buf.Reset()
+
+	kv.Put("clusters/testapp/test/versions", "bogus")
+	pollOnce(config, nil)
+
+	AssertInclude(t, buf.String(), "No or invalid data")
+	AssertInclude(t, buf.String(), "testapp")
+}
+
+func TestGracefullyMissingOrInvalidConfigData(t *testing.T) {
+	var buf bytes.Buffer
+	setOut(&buf)
+	defer setOut(defaultOut())
+
+	kv := prepareStore()
+	if kv == nil {
+		t.Skip("KV store not available, skipping test.")
+		return
+	}
+
+	kv.Put("nodes/testhost/testapp", map[string]string{
+		"cluster": "test",
+	})
+	kv.Put("clusters/testapp/test/versions", map[string]string{
+		"abc123": "active",
+	})
+
+	config := PreparerConfig{Hostname: "testhost"}
+	pollOnce(config, nil)
+
+	AssertInclude(t, buf.String(), "No or invalid data")
+	AssertInclude(t, buf.String(), "testapp")
+
+	buf.Reset()
+	kv.Put("clusters/testapp/test/deploy_config", "bogus")
+	pollOnce(config, nil)
+
+	AssertInclude(t, buf.String(), "No or invalid data")
+	AssertInclude(t, buf.String(), "testapp")
+}
+
+func TestGracefullyHandleNonAbsoluteBasedir(t *testing.T) {
+	var buf bytes.Buffer
+	setOut(&buf)
+	defer setOut(defaultOut())
+
+	kv := prepareStore()
+	if kv == nil {
+		t.Skip("KV store not available, skipping test.")
+		return
+	}
+
+	kv.Put("nodes/testhost/testapp", map[string]string{
+		"cluster": "test",
+	})
+	kv.Put("clusters/testapp/test/versions", map[string]string{
+		"abc123": "active",
+	})
+	kv.Put("clusters/testapp/test/deploy_config", map[string]string{
+		"basedir": "relative",
+	})
+
+	config := PreparerConfig{Hostname: "testhost"}
+	pollOnce(config, nil)
+
+	AssertInclude(t, buf.String(), "Not allowing relative basedir")
+	AssertInclude(t, buf.String(), "testapp")
+}
+
 func TestPrepareArtifactExtractsToInstall(t *testing.T) {
 	basedir := tempDir()
 	defer os.RemoveAll(basedir)
