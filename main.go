@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"sync"
 )
 
 type PreparerConfig struct {
@@ -37,7 +38,10 @@ func main() {
 	}
 
 	c := make(chan WorkSpec)
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for w := range c {
 			PrepareArtifact(w.App, w.Version, w.Basedir, preparerConfig)
 		}
@@ -45,6 +49,7 @@ func main() {
 
 	err = pollOnce(preparerConfig, c)
 	close(c)
+	wg.Wait()
 	if err != nil {
 		Fatal(err.Error())
 		os.Exit(1)
@@ -53,6 +58,7 @@ func main() {
 }
 
 func pollOnce(config PreparerConfig, c chan WorkSpec) error {
+	Info("Polling intent store")
 	kv, _ := ppkv.NewClient()
 	apps, err := kv.List(path.Join("nodes", config.Hostname))
 	if err != nil {
@@ -60,6 +66,8 @@ func pollOnce(config PreparerConfig, c chan WorkSpec) error {
 	}
 
 	for appName, data := range apps {
+		Info("Checking spec for %s", appName)
+
 		appData, worked := stringMap(data)
 		if !worked {
 			Fatal("Invalid node data for %s", appName)
@@ -94,6 +102,7 @@ func pollOnce(config PreparerConfig, c chan WorkSpec) error {
 		}
 
 		for version, _ := range versions {
+			Info("Found version: %s/%s", appName, version)
 			c <- WorkSpec{
 				App:     appName,
 				Version: version,
