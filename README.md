@@ -7,6 +7,12 @@ should be present, and fetches and untars them.
 
 See tests for usage.
 
+Status
+------
+
+Can determine desired status from intent store, and if required version is not
+present fetch artifact from fixed file:// location and untar it.
+
 TODO
 ----
 
