@@ -22,36 +22,69 @@ type DeployConfig struct {
 }
 
 type PreparerConfig struct {
+	Hostname     string
 	ArtifactRepo url.URL
 }
 
+type WorkSpec struct {
+	App     string
+	Version string
+	Config  DeployConfig
+}
+
 func main() {
-	client, err := consulapi.NewClient(consulapi.DefaultConfig())
-	if err != nil {
-		Fatal(err.Error())
-		os.Exit(1)
-	}
 	hostname, err := os.Hostname()
 	if err != nil {
 		Fatal(err.Error())
 		os.Exit(1)
 	}
 
-	kv := client.KV()
-	apps, _, err := kv.List("nodes/"+hostname, nil)
+	preparerConfig := PreparerConfig{
+		ArtifactRepo: url.URL{Scheme: "file", Path: "/tmp/local-repo"},
+		Hostname:     hostname,
+	}
+
+	c := make(chan WorkSpec)
+	go func() {
+		for w := range c {
+			PrepareArtifact(w.App, w.Version, w.Config, preparerConfig)
+		}
+	}()
+
+	err = pollConsulOnce(preparerConfig, c)
+	close(c)
 	if err != nil {
-		panic(err)
+		Fatal(err.Error())
+		os.Exit(1)
+	}
+
+}
+
+func pollConsulOnce(config PreparerConfig, c chan WorkSpec) error {
+	client, err := consulapi.NewClient(consulapi.DefaultConfig())
+	if err != nil {
+		return err
+	}
+	kv := client.KV()
+	apps, _, err := kv.List("nodes/"+config.Hostname, nil)
+	if err != nil {
+		return err
 	}
 	for _, app := range apps {
+		appName := path.Base(app.Key)
 		var nodeApp NodeApp
 		err := json.Unmarshal(app.Value, &nodeApp)
 		if err != nil {
-			Fatal("Invalid nodes data for %s: %s", app.Key, err)
+			Fatal("Invalid nodes data for %s: %s", appName, err)
 			continue
 		}
-		versionData, _, err :=
-			kv.Get("clusters/"+nodeApp.Cluster+"/versions", nil)
+		clusterKey := path.Join("clusters", appName, nodeApp.Cluster, "versions")
+		versionData, _, err := kv.Get(clusterKey, nil)
 
+		if versionData == nil {
+			Fatal("No data for %s", clusterKey)
+			continue
+		}
 		var versionSpec map[string]string
 		err = json.Unmarshal(versionData.Value, &versionSpec)
 		if err != nil {
@@ -60,26 +93,32 @@ func main() {
 		}
 
 		var deployConfig DeployConfig
-		configData, _, err :=
-			kv.Get("clusters/"+nodeApp.Cluster+"/deploy_config", nil)
+		configKey := path.Join("clusters", appName, nodeApp.Cluster, "deploy_config")
+		configData, _, err := kv.Get(configKey, nil)
+		if configData == nil {
+			Fatal("No data for %s", configKey)
+			continue
+		}
 		err = json.Unmarshal(configData.Value, &deployConfig)
 		if err != nil {
 			Fatal("Invalid deploy config data for %s: %s", nodeApp.Cluster, err)
 			continue
 		}
-		preparerConfig := PreparerConfig{
-			ArtifactRepo: url.URL{Scheme: "file", Path: "/tmp/local-hoist-repo"},
-		}
 
 		for version, _ := range versionSpec {
-			PrepareArtifact(path.Base(app.Key), version, deployConfig, preparerConfig)
+			c <- WorkSpec{
+				App:     appName,
+				Version: version,
+				Config:  deployConfig,
+			}
 		}
 	}
+	return nil
 }
 
 func PrepareArtifact(app string, version string, deployConfig DeployConfig, preparerConfig PreparerConfig) {
 	targetDir := path.Join(deployConfig.Basedir, "installs", app+"_"+version)
-	tmpDir, err := ioutil.TempDir("", "sp-preparer")
+	tmpDir, err := ioutil.TempDir("", "preparer")
 
 	if err != nil {
 		Fatal("Could not create temp dir")
