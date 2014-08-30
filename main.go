@@ -3,8 +3,6 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
-	"errors"
-	"github.com/platypus-platform/pp-kv-consul"
 	. "github.com/platypus-platform/pp-logging"
 	"github.com/platypus-platform/pp-store"
 	"io"
@@ -133,35 +131,4 @@ func extractTarGz(src string, dest string) (err error) {
 		}
 	}
 	return nil
-}
-
-func getMap(kv *ppkv.Client, query string) (map[string]string, error) {
-	raw, err := kv.Get(query)
-
-	if err != nil {
-		return nil, err
-	}
-
-	mapped, worked := stringMap(raw)
-	if !worked {
-		return nil, errors.New("Not a string map")
-	}
-
-	return mapped, nil
-}
-
-func stringMap(raw interface{}) (map[string]string, bool) {
-	mapped, worked := raw.(map[string]interface{})
-	if !worked {
-		return nil, false
-	}
-	ret := map[string]string{}
-	for k, v := range mapped {
-		str, worked := v.(string)
-		if !worked {
-			return nil, false
-		}
-		ret[k] = str
-	}
-	return ret, true
 }
