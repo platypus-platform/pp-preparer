@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"errors"
 	"github.com/platypus-platform/pp-kv-consul"
+	. "github.com/platypus-platform/pp-logging"
 	"io"
 	"io/ioutil"
 	"net/url"

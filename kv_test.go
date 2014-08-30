@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"github.com/platypus-platform/pp-kv-consul"
+	"github.com/platypus-platform/pp-logging"
 	"sync"
 
 	. "github.com/onsi/ginkgo"
@@ -10,7 +11,7 @@ import (
 )
 
 func init() {
-	setLogLevel("FATAL")
+	logger.SetLogLevel("FATAL")
 }
 
 func prepareStore() *ppkv.Client {
@@ -87,8 +88,8 @@ var _ = Describe("Reading spec from KV store", func() {
 
 	It("Gracefully handles invalid node data", func() {
 		var buf bytes.Buffer
-		setOut(&buf)
-		defer setOut(defaultOut())
+		logger.SetOut(&buf)
+		defer logger.SetOut(logger.DefaultOut())
 
 		kv := prepareStore()
 		if kv == nil {
@@ -106,8 +107,8 @@ var _ = Describe("Reading spec from KV store", func() {
 
 	It("Gracefully handles missing cluster data", func() {
 		var buf bytes.Buffer
-		setOut(&buf)
-		defer setOut(defaultOut())
+		logger.SetOut(&buf)
+		defer logger.SetOut(logger.DefaultOut())
 
 		kv := prepareStore()
 		if kv == nil {
@@ -127,8 +128,8 @@ var _ = Describe("Reading spec from KV store", func() {
 
 	It("Gracefully handles missing or invalid version data", func() {
 		var buf bytes.Buffer
-		setOut(&buf)
-		defer setOut(defaultOut())
+		logger.SetOut(&buf)
+		defer logger.SetOut(logger.DefaultOut())
 
 		kv := prepareStore()
 		if kv == nil {
@@ -156,8 +157,8 @@ var _ = Describe("Reading spec from KV store", func() {
 
 	It("Gracefully handles missing or invalid config data", func() {
 		var buf bytes.Buffer
-		setOut(&buf)
-		defer setOut(defaultOut())
+		logger.SetOut(&buf)
+		defer logger.SetOut(logger.DefaultOut())
 
 		kv := prepareStore()
 		if kv == nil {
@@ -187,8 +188,8 @@ var _ = Describe("Reading spec from KV store", func() {
 
 	It("Gracefully handles non-absolute basedir", func() {
 		var buf bytes.Buffer
-		setOut(&buf)
-		defer setOut(defaultOut())
+		logger.SetOut(&buf)
+		defer logger.SetOut(logger.DefaultOut())
 
 		kv := prepareStore()
 		if kv == nil {
