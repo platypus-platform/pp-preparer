@@ -3,23 +3,14 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
-	"encoding/json"
-	"github.com/armon/consul-api" // TODO: Lock to branch
+	"errors"
+	"github.com/platypus-platform/pp-kv-consul"
 	"io"
 	"io/ioutil"
 	"net/url"
 	"os"
 	"path"
 )
-
-type NodeApp struct {
-	Cluster string
-}
-
-type DeployConfig struct {
-	Basedir string
-	Runas   string
-}
 
 type PreparerConfig struct {
 	Hostname     string
@@ -29,7 +20,7 @@ type PreparerConfig struct {
 type WorkSpec struct {
 	App     string
 	Version string
-	Config  DeployConfig
+	Basedir string
 }
 
 func main() {
@@ -47,11 +38,11 @@ func main() {
 	c := make(chan WorkSpec)
 	go func() {
 		for w := range c {
-			PrepareArtifact(w.App, w.Version, w.Config, preparerConfig)
+			PrepareArtifact(w.App, w.Version, w.Basedir, preparerConfig)
 		}
 	}()
 
-	err = pollConsulOnce(preparerConfig, c)
+	err = pollOnce(preparerConfig, c)
 	close(c)
 	if err != nil {
 		Fatal(err.Error())
@@ -60,64 +51,66 @@ func main() {
 
 }
 
-func pollConsulOnce(config PreparerConfig, c chan WorkSpec) error {
-	client, err := consulapi.NewClient(consulapi.DefaultConfig())
+func pollOnce(config PreparerConfig, c chan WorkSpec) error {
+	kv, _ := ppkv.NewClient()
+	apps, err := kv.List(path.Join("nodes", config.Hostname))
 	if err != nil {
 		return err
 	}
-	kv := client.KV()
-	apps, _, err := kv.List("nodes/"+config.Hostname, nil)
-	if err != nil {
-		return err
-	}
-	for _, app := range apps {
-		appName := path.Base(app.Key)
-		var nodeApp NodeApp
-		err := json.Unmarshal(app.Value, &nodeApp)
-		if err != nil {
+
+	for appName, data := range apps {
+		appData, worked := stringMap(data)
+		if !worked {
 			Fatal("Invalid nodes data for %s: %s", appName, err)
 			continue
 		}
-		clusterKey := path.Join("clusters", appName, nodeApp.Cluster, "versions")
-		versionData, _, err := kv.Get(clusterKey, nil)
 
-		if versionData == nil {
-			Fatal("No data for %s", clusterKey)
+		cluster := appData["cluster"]
+		if cluster == "" {
+			Fatal("No cluster key if node data for %s", appName)
 			continue
 		}
-		var versionSpec map[string]string
-		err = json.Unmarshal(versionData.Value, &versionSpec)
+
+		clusterKey := path.Join("clusters", appName, cluster, "versions")
+		configKey := path.Join("clusters", appName, cluster, "deploy_config")
+
+		versions, err := getMap(kv, clusterKey)
 		if err != nil {
-			Fatal("Invalid version data for %s: %s", nodeApp.Cluster, err)
+			Fatal("No or invalid data for %s: %s", clusterKey, err)
 			continue
 		}
 
-		var deployConfig DeployConfig
-		configKey := path.Join("clusters", appName, nodeApp.Cluster, "deploy_config")
-		configData, _, err := kv.Get(configKey, nil)
-		if configData == nil {
-			Fatal("No data for %s", configKey)
-			continue
-		}
-		err = json.Unmarshal(configData.Value, &deployConfig)
+		deployConfig, err := getMap(kv, configKey)
 		if err != nil {
-			Fatal("Invalid deploy config data for %s: %s", nodeApp.Cluster, err)
+			Fatal("No or invalid data for %s: %s", configKey, err)
 			continue
 		}
 
-		for version, _ := range versionSpec {
+		basedir := deployConfig["basedir"]
+		if basedir == "" {
+			Fatal("Not allowing relative basedir in %s", configKey)
+			continue
+		}
+
+		for version, _ := range versions {
 			c <- WorkSpec{
 				App:     appName,
 				Version: version,
-				Config:  deployConfig,
+				Basedir: basedir,
 			}
 		}
 	}
 	return nil
 }
 
-func PrepareArtifact(app string, version string, deployConfig DeployConfig, preparerConfig PreparerConfig) {
-	targetDir := path.Join(deployConfig.Basedir, "installs", app+"_"+version)
+func PrepareArtifact(
+	app string,
+	version string,
+	basedir string,
+	preparerConfig PreparerConfig,
+) {
+
+	targetDir := path.Join(basedir, "installs", app+"_"+version)
 	tmpDir, err := ioutil.TempDir("", "preparer")
 
 	if err != nil {
@@ -128,14 +121,22 @@ func PrepareArtifact(app string, version string, deployConfig DeployConfig, prep
 
 	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
 		Info("Does not exist: %s", targetDir)
-		artifactPath := path.Join(preparerConfig.ArtifactRepo.Path, app, app+"_"+version+".tar.gz")
-		Info("Fetching artifact")
+		artifactPath := path.Join(
+			preparerConfig.ArtifactRepo.Path,
+			app,
+			app+"_"+version+".tar.gz",
+		)
+
+		Warn("TODO: Fetching artifact")
 		Info("Extracting %s to %s", artifactPath, tmpDir)
+
 		err := extractTarGz(artifactPath, tmpDir)
 		if err != nil {
-			Fatal("Could not extract %s to %s: %s", artifactPath, targetDir, err.Error())
+			Fatal("Could not extract %s to %s: %s",
+				artifactPath, targetDir, err.Error())
 			return
 		}
+
 		Info("Moving %s to %s", tmpDir, targetDir)
 		os.MkdirAll(path.Dir(targetDir), 0755)
 		err = os.Rename(tmpDir, targetDir)
@@ -143,8 +144,9 @@ func PrepareArtifact(app string, version string, deployConfig DeployConfig, prep
 			Fatal("Could not move %s to %s: %s", tmpDir, targetDir, err.Error())
 			return
 		}
+
 	} else {
-		Info("Already exists: %s", targetDir)
+		Info("%s already exists, skipping", targetDir)
 	}
 }
 
@@ -191,4 +193,35 @@ func extractTarGz(src string, dest string) (err error) {
 		}
 	}
 	return nil
+}
+
+func getMap(kv *ppkv.Client, query string) (map[string]string, error) {
+	raw, err := kv.Get(query)
+
+	if err != nil {
+		return nil, err
+	}
+
+	mapped, worked := stringMap(raw)
+	if !worked {
+		return nil, errors.New("Not a string map")
+	}
+
+	return mapped, nil
+}
+
+func stringMap(raw interface{}) (map[string]string, bool) {
+	mapped, worked := raw.(map[string]interface{})
+	if !worked {
+		return nil, false
+	}
+	ret := map[string]string{}
+	for k, v := range mapped {
+		str, worked := v.(string)
+		if !worked {
+			return nil, false
+		}
+		ret[k] = str
+	}
+	return ret, true
 }

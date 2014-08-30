@@ -3,8 +3,7 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
-	"encoding/json"
-	"github.com/armon/consul-api" // TODO: Lock to branch
+	"github.com/platypus-platform/pp-kv-consul"
 	"io/ioutil"
 	"net/url"
 	"os"
@@ -15,7 +14,7 @@ import (
 )
 
 func init() {
-	setLogLevel("NONE")
+  setLogLevel("NONE")
 }
 
 func tempDir() string {
@@ -26,36 +25,24 @@ func tempDir() string {
 	return dir
 }
 
-func Set(kv *consulapi.KV, key string, value map[string]string) {
-	body, _ := json.Marshal(value)
-
-	node := &consulapi.KVPair{
-		Key:   key,
-		Value: body,
-	}
-	kv.Put(node, nil)
-	return
-}
-
 func TestReadsConfigFromConsul(t *testing.T) {
-	client, _ := consulapi.NewClient(consulapi.DefaultConfig())
-	_, _, err := client.KV().Get("test", nil)
+	kv, _ := ppkv.NewClient()
+	_, err := kv.Get("test")
 	if err != nil {
-		t.Skip("Consul not available, skipping test: %s", err.Error())
+		t.Skip("KV store not available, skipping test: %s", err.Error())
 		return
 	}
 
-	kv := client.KV()
-	kv.DeleteTree("nodes/testhost", nil)
-	kv.DeleteTree("clusters/testapp", nil)
-	Set(kv, "nodes/testhost/testapp", map[string]string{
+	kv.DeleteTree("nodes/testhost")
+	kv.DeleteTree("clusters/testapp")
+	kv.Put("nodes/testhost/testapp", map[string]string{
 		"cluster": "test",
 	})
-	Set(kv, "clusters/testapp/test/versions", map[string]string{
+	kv.Put("clusters/testapp/test/versions", map[string]string{
 		"abc123": "prep",
 		"def456": "active",
 	})
-	Set(kv, "clusters/testapp/test/deploy_config", map[string]string{
+	kv.Put("clusters/testapp/test/deploy_config", map[string]string{
 		"basedir": "/sometmp",
 	})
 
@@ -66,7 +53,7 @@ func TestReadsConfigFromConsul(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for w := range c {
-			// This is kind of a roundabout way to get the results into an array.
+			// This is kind of a roundabout way to get the results into a slice.
 			// Surely there is a better way?
 			s = append(s, w)
 		}
@@ -74,7 +61,7 @@ func TestReadsConfigFromConsul(t *testing.T) {
 	config := PreparerConfig{
 		Hostname: "testhost",
 	}
-	err = pollConsulOnce(config, c)
+	err = pollOnce(config, c)
 	close(c)
 	if err != nil {
 		t.Errorf(err.Error())
@@ -83,8 +70,8 @@ func TestReadsConfigFromConsul(t *testing.T) {
 	wg.Wait()
 
 	expected := []WorkSpec{
-		WorkSpec{App: "testapp", Version: "abc123", Config: DeployConfig{Basedir: "/sometmp"}},
-		WorkSpec{App: "testapp", Version: "def456", Config: DeployConfig{Basedir: "/sometmp"}},
+		WorkSpec{App: "testapp", Version: "abc123", Basedir: "/sometmp"},
+		WorkSpec{App: "testapp", Version: "def456", Basedir: "/sometmp"},
 	}
 	if !reflect.DeepEqual(expected, s) {
 		t.Errorf("\nwant: %v\n got: %v", expected, s)
@@ -92,10 +79,8 @@ func TestReadsConfigFromConsul(t *testing.T) {
 }
 
 func TestPrepareArtifactExtractsToInstall(t *testing.T) {
-	d := tempDir()
-	defer os.RemoveAll(d)
-
-	config := DeployConfig{Basedir: d}
+	basedir := tempDir()
+	defer os.RemoveAll(basedir)
 
 	repo := tempDir()
 	defer os.RemoveAll(repo)
@@ -109,8 +94,8 @@ func TestPrepareArtifactExtractsToInstall(t *testing.T) {
 		"README": "Hello",
 	})
 
-	PrepareArtifact("testapp", "abc123", config, preparerConfig)
-	expectedFile := path.Join(d, "installs", "testapp_abc123", "README")
+	PrepareArtifact("testapp", "abc123", basedir, preparerConfig)
+	expectedFile := path.Join(basedir, "installs", "testapp_abc123", "README")
 
 	contents, err := ioutil.ReadFile(expectedFile)
 
@@ -146,14 +131,13 @@ func writeTarGz(dest string, files map[string]string) {
 }
 
 func TestPrepareArtifactDoesNotOverrideExisting(t *testing.T) {
-	d := tempDir()
-	defer os.RemoveAll(d)
+	basedir := tempDir()
+	defer os.RemoveAll(basedir)
 
-	config := DeployConfig{Basedir: d}
-	keepFile := path.Join(d, "installs/testapp_abc123/keep")
+	keepFile := path.Join(basedir, "installs/testapp_abc123/keep")
 	os.MkdirAll(keepFile, 0755)
 
-	PrepareArtifact("testapp", "abc123", config, PreparerConfig{})
+	PrepareArtifact("testapp", "abc123", basedir, PreparerConfig{})
 
 	if _, err := os.Stat(keepFile); os.IsNotExist(err) {
 		t.Errorf("Overwrote existing file")
