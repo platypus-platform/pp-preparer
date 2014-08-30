@@ -19,7 +19,7 @@ func init() {
 }
 
 func tempDir() string {
-	dir, err := ioutil.TempDir("", "sp-preparer-test")
+	dir, err := ioutil.TempDir("", "preparer-test")
 	if err != nil {
 		panic(err)
 	}

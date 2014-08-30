@@ -1,5 +1,5 @@
-sp-preparer
-===========
+platypus-preparer
+=================
 
 An agent intended to run on each node that runs code. It looks at an intent
 store (in this interation, Consul KV) to figure out which application artifacts

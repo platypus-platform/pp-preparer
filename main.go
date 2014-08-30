@@ -118,7 +118,7 @@ func pollConsulOnce(config PreparerConfig, c chan WorkSpec) error {
 
 func PrepareArtifact(app string, version string, deployConfig DeployConfig, preparerConfig PreparerConfig) {
 	targetDir := path.Join(deployConfig.Basedir, "installs", app+"_"+version)
-	tmpDir, err := ioutil.TempDir("", "sp-preparer")
+	tmpDir, err := ioutil.TempDir("", "preparer")
 
 	if err != nil {
 		Fatal("Could not create temp dir")
