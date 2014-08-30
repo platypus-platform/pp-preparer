@@ -16,7 +16,6 @@ import (
 )
 
 type PreparerConfig struct {
-	Hostname     string
 	ArtifactRepo url.URL
 }
 
@@ -29,7 +28,6 @@ func main() {
 
 	preparerConfig := PreparerConfig{
 		ArtifactRepo: url.URL{Scheme: "file", Path: "/tmp/local-repo"},
-		Hostname:     hostname,
 	}
 
 	c := make(chan pp.IntentNode)
@@ -46,7 +44,7 @@ func main() {
 		}
 	}()
 
-	err = pp.PollOnce(preparerConfig.Hostname, c)
+	err = pp.PollOnce(hostname, c)
 	close(c)
 	wg.Wait()
 	if err != nil {
