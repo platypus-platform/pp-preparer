@@ -26,3 +26,4 @@ TODO
 * Benchmark extracting tar and decided whether should just be shelling out
   instead.
 * Do a scrub over error handling to check for dodgy messages.
+* Decide whether I even like this go thing.
