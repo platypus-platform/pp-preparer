@@ -22,8 +22,6 @@ TODO
 * Watch intent store for changes, rather than using a polling loop.
 * Enable configuration of artifact repo.
 * Support HTTP(S) artifact repos.
-* Tests for bogus data in intent store.
 * Benchmark extracting tar and decided whether should just be shelling out
   instead.
-* Do a scrub over error handling to check for dodgy messages.
 * Decide whether I even like this go thing.
