@@ -1,9 +1,9 @@
-platypus-preparer
-=================
+pp-preparer
+===========
 
 An agent intended to run on each node that runs code. It looks at an intent
-store (in this iteration, Consul KV) to figure out which application artifacts
-should be present, and fetches and untars them.
+store to figure out which application artifacts should be present, and fetches
+and untars them.
 
 See tests for usage.
 
