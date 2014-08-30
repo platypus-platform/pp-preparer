@@ -5,6 +5,8 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"time"
 )
 
@@ -18,12 +20,21 @@ const (
 
 var (
 	logLevel = INFO
+	out      = defaultOut()
 )
+
+func defaultOut() io.Writer {
+	return io.Writer(os.Stdout)
+}
 
 func Fatal(msg string, args ...interface{}) { logAt(FATAL, "FATAL", msg, args...) }
 func Warn(msg string, args ...interface{})  { logAt(WARN, "WARN", msg, args...) }
 func Info(msg string, args ...interface{})  { logAt(INFO, "INFO", msg, args...) }
 func Debug(msg string, args ...interface{}) { logAt(DEBUG, "DEBUG", msg, args...) }
+
+func setOut(writer io.Writer) {
+	out = writer
+}
 
 func setLogLevel(level string) {
 	switch level {
@@ -50,7 +61,7 @@ func logAt(level int, tag string, msg string, args ...interface{}) {
 func Log(tag string, msg string, args ...interface{}) {
 	now := time.Now().UTC()
 
-	fmt.Printf("%-5s [%s] %s\n", tag,
+	fmt.Fprintf(out, "%-5s [%s] %s\n", tag,
 		now.Format("2006-01-02 15:04:05.999"),
 		fmt.Sprintf(msg, args...))
 }

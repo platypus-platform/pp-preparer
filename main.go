@@ -61,13 +61,13 @@ func pollOnce(config PreparerConfig, c chan WorkSpec) error {
 	for appName, data := range apps {
 		appData, worked := stringMap(data)
 		if !worked {
-			Fatal("Invalid nodes data for %s: %s", appName, err)
+			Fatal("Invalid node data for %s", appName)
 			continue
 		}
 
 		cluster := appData["cluster"]
 		if cluster == "" {
-			Fatal("No cluster key if node data for %s", appName)
+			Fatal("No cluster key in node data for %s", appName)
 			continue
 		}
 

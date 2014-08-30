@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"github.com/platypus-platform/pp-kv-consul"
 	"io/ioutil"
@@ -14,7 +15,7 @@ import (
 )
 
 func init() {
-  setLogLevel("NONE")
+	setLogLevel("FATAL")
 }
 
 func tempDir() string {
@@ -25,16 +26,26 @@ func tempDir() string {
 	return dir
 }
 
-func TestReadsConfigFromConsul(t *testing.T) {
+func prepareStore() *ppkv.Client {
 	kv, _ := ppkv.NewClient()
 	_, err := kv.Get("test")
 	if err != nil {
-		t.Skip("KV store not available, skipping test: %s", err.Error())
-		return
+		return nil
 	}
 
 	kv.DeleteTree("nodes/testhost")
 	kv.DeleteTree("clusters/testapp")
+
+	return kv
+}
+
+func TestReadsConfigFromStore(t *testing.T) {
+	kv := prepareStore()
+	if kv == nil {
+		t.Skip("KV store not available, skipping test.")
+		return
+	}
+
 	kv.Put("nodes/testhost/testapp", map[string]string{
 		"cluster": "test",
 	})
@@ -61,7 +72,7 @@ func TestReadsConfigFromConsul(t *testing.T) {
 	config := PreparerConfig{
 		Hostname: "testhost",
 	}
-	err = pollOnce(config, c)
+	err := pollOnce(config, c)
 	close(c)
 	if err != nil {
 		t.Errorf(err.Error())
@@ -76,6 +87,59 @@ func TestReadsConfigFromConsul(t *testing.T) {
 	if !reflect.DeepEqual(expected, s) {
 		t.Errorf("\nwant: %v\n got: %v", expected, s)
 	}
+}
+
+func TestGracefullyHandlesNoData(t *testing.T) {
+	kv := prepareStore()
+	if kv == nil {
+		t.Skip("KV store not available, skipping test.")
+		return
+	}
+
+	config := PreparerConfig{Hostname: "testhost"}
+	pollOnce(config, nil)
+}
+
+func TestGracefullyInvalidNodeData(t *testing.T) {
+	var buf bytes.Buffer
+	setOut(&buf)
+	defer setOut(defaultOut())
+
+	kv := prepareStore()
+	if kv == nil {
+		t.Skip("KV store not available, skipping test.")
+		return
+	}
+
+	kv.Put("nodes/testhost/testapp", 34)
+
+	config := PreparerConfig{Hostname: "testhost"}
+	pollOnce(config, nil)
+
+	AssertInclude(t, buf.String(), "Invalid node data")
+	AssertInclude(t, buf.String(), "testapp")
+}
+
+func TestGracefullyMissingClusterData(t *testing.T) {
+	var buf bytes.Buffer
+	setOut(&buf)
+	defer setOut(defaultOut())
+
+	kv := prepareStore()
+	if kv == nil {
+		t.Skip("KV store not available, skipping test.")
+		return
+	}
+
+	kv.Put("nodes/testhost/testapp", map[string]string{
+		"bogus": "test",
+	})
+
+	config := PreparerConfig{Hostname: "testhost"}
+	pollOnce(config, nil)
+
+	AssertInclude(t, buf.String(), "No cluster key")
+	AssertInclude(t, buf.String(), "testapp")
 }
 
 func TestPrepareArtifactExtractsToInstall(t *testing.T) {
