@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"sync"
 )
 
 type PreparerConfig struct {
@@ -30,23 +29,14 @@ func main() {
 		ArtifactRepo: url.URL{Scheme: "file", Path: "/tmp/local-repo"},
 	}
 
-	c := make(chan pp.IntentNode)
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for intent := range c {
-			for _, app := range intent.Apps {
-				for version, _ := range app.Versions {
-					PrepareArtifact(app.Name, version, app.Basedir, preparerConfig)
-				}
+	err = pp.PollIntent(hostname, func(intent pp.IntentNode) {
+		for _, app := range intent.Apps {
+			for version, _ := range app.Versions {
+				PrepareArtifact(app.Name, version, app.Basedir, preparerConfig)
 			}
 		}
-	}()
+	})
 
-	err = pp.PollOnce(hostname, c)
-	close(c)
-	wg.Wait()
 	if err != nil {
 		Fatal(err.Error())
 		os.Exit(1)
