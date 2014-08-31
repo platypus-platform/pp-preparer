@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"flag"
 	. "github.com/platypus-platform/pp-logging"
 	"github.com/platypus-platform/pp-store"
 	"io"
@@ -13,7 +14,7 @@ import (
 )
 
 type PreparerConfig struct {
-	ArtifactRepo url.URL
+	ArtifactRepo ArtifactUrl
 }
 
 func main() {
@@ -23,9 +24,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	preparerConfig := PreparerConfig{
-		ArtifactRepo: url.URL{Scheme: "file", Path: "/tmp/local-repo"},
+	var preparerConfig PreparerConfig
+	preparerConfig.ArtifactRepo = ArtifactUrl{
+		Scheme: "file",
+		Path:   "fake/repo",
 	}
+
+	flag.Var(&preparerConfig.ArtifactRepo, "repo", "repo url")
+	flag.Parse()
 
 	err = pp.PollIntent(hostname, func(intent pp.IntentNode) {
 		for _, app := range intent.Apps {
@@ -39,6 +45,26 @@ func main() {
 		Fatal(err.Error())
 		os.Exit(1)
 	}
+}
+
+// Need to use a custom type so we can implement flag.Value
+type ArtifactUrl url.URL
+
+func (i *ArtifactUrl) String() string {
+	var x url.URL
+	x = url.URL(*i)
+	return x.String()
+}
+
+func (i *ArtifactUrl) Set(value string) error {
+	parsed, err := url.Parse(value)
+
+	if err != nil {
+		return err
+	}
+
+	*i = ArtifactUrl(*parsed)
+	return nil
 }
 
 func PrepareArtifact(
