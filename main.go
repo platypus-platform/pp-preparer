@@ -75,6 +75,8 @@ func PrepareArtifact(
 ) {
 
 	targetDir := path.Join(basedir, "installs", app+"_"+version)
+	// TODO: Need to ensure tmpDir is on same filesystem as target, so the move
+	// can be atomic. Maybe use basedir/tmp ?
 	tmpDir, err := ioutil.TempDir("", "preparer")
 
 	if err != nil {
