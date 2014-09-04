@@ -3,9 +3,12 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"crypto/md5"
 	"flag"
+	"fmt"
 	. "github.com/platypus-platform/pp-logging"
 	"github.com/platypus-platform/pp-store"
+	"gopkg.in/yaml.v1"
 	"io"
 	"io/ioutil"
 	"net/url"
@@ -37,6 +40,7 @@ func main() {
 		for _, app := range intent.Apps {
 			for version, _ := range app.Versions {
 				PrepareArtifact(app.Name, version, app.Basedir, preparerConfig)
+				PrepareConfig(app)
 			}
 		}
 	})
@@ -65,6 +69,29 @@ func (i *ArtifactUrl) Set(value string) error {
 
 	*i = ArtifactUrl(*parsed)
 	return nil
+}
+
+// TODO: How to clean up old config?
+// TODO: Tests
+func PrepareConfig(app pp.IntentApp) {
+	content, err := yaml.Marshal(&app.UserConfig)
+	if err != nil {
+		Fatal("%s: could not emit user config as yaml: %s", app.Name, err)
+		return
+	}
+	// YAML output is deterministic, even when using maps.
+	sha := fmt.Sprintf("%x", md5.Sum(content))
+	targetPath := path.Join(app.Basedir, "configs", sha+".yaml")
+	if err := os.MkdirAll(path.Dir(targetPath), 0755); err != nil {
+		Fatal("%s: could not write config: %s", app.Name, err)
+		return
+	}
+
+	Info("%s: writing config", app.Name)
+	if err := writeFileAtomic(targetPath, content, 0644); err != nil {
+		Fatal("%s: could not write config: %s", app.Name, err)
+		return
+	}
 }
 
 func PrepareArtifact(
@@ -158,5 +185,29 @@ func extractTarGz(src string, dest string) (err error) {
 			}
 		}
 	}
+	return nil
+}
+
+// TODO: Duplicated in pp-iptables
+func writeFileAtomic(fpath string, fcontent []byte, mod os.FileMode) error {
+	f, err := ioutil.TempFile("", "writeFileAtomic")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name()) // This will fail in happy case, that's fine.
+
+	if _, err := f.Write(fcontent); err != nil {
+		return err
+	}
+	if err := f.Chmod(mod); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(f.Name(), fpath); err != nil {
+		return err
+	}
+
 	return nil
 }
